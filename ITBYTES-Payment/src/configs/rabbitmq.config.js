@@ -1,30 +1,131 @@
 const amqp = require('amqplib');
-const {composePublisher} = require('rabbitmq-publisher')
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqps://ohcjywzb:ObmX3HW1v4G15PE35c_LUdHKgx14ZEwJ@cougar.rmq.cloudamqp.com/ohcjywzb';
 
-// Initialize publishers with error handling wrapper
-const createPublisher = (exchangeName, routingKey) => {
+// RabbitMQ connection helper
+async function connect(uri) {
+    try {
+        if (!uri) {
+            uri = 'amqp://guest:guest@localhost:5672';
+            console.warn("No RabbitMQ URI provided, using default 'amqp://guest:guest@localhost:5672'");
+        }
+
+        console.log("Attempting to connect to RabbitMQ at:", uri.split('@')[1]); // Only log the host part, not credentials
+        const connection = await amqp.connect(uri, {
+            heartbeat: 60,
+            timeout: 10000,
+            connectionTimeout: 10000
+        });
+        
+        connection.on('error', (err) => {
+            console.error('RabbitMQ connection error:', err.message);
+            throw err;
+        });
+
+        const channel = await connection.createChannel();
+        channel.on('error', (err) => {
+            console.error('RabbitMQ channel error:', err.message);
+            throw err;
+        });
+
+        console.log("Connected to RabbitMQ successfully");
+        return { connection, channel };
+    } catch (error) {
+        console.error("Failed to connect to RabbitMQ:", error.message);
+        throw new Error(`RabbitMQ Connection Failed: ${error.message}`);
+    }
+}
+
+// Publisher composer
+function composePublisher({connectionUri, exchange, exchangeType, routingKey, queue, options}) {
+    const defaultOptions = {
+        durable: true,
+        exclusive: false,
+        autoDelete: false
+    };
+
     return async (message) => {
+        let connection, channel;
         try {
-            const publisher = composePublisher({connectionUri: RABBITMQ_URL, exchange: exchangeName,exchangeType: "topic",routingKey: routingKey, queue: null});
-            await publisher(JSON.stringify(message));
-            console.log(`Message published to ${exchangeName} with routing key ${routingKey}`);
+            const result = await connect(connectionUri);
+            connection = result.connection;
+            channel = result.channel;
+
+            if (exchange) {
+                await channel.assertExchange(exchange, exchangeType, options || defaultOptions);
+            } else {
+                await channel.assertQueue(queue, options || defaultOptions);
+            }
+
+            const messageBuffer = Buffer.from(JSON.stringify(message));
+            const published = await channel.publish(exchange, routingKey, messageBuffer, {
+                persistent: true,
+                contentType: 'application/json'
+            });
+
+            if (!published) {
+                throw new Error('Message could not be published to RabbitMQ');
+            }
+
+            console.log(`Message published to ${exchange} with routing key ${routingKey}`);
         } catch (error) {
-            console.error(`Failed to publish message to ${exchangeName}:`, error);
-            // Don't throw error, just log it
+            console.error(`Error publishing message to ${exchange}:`, error.message);
+            throw new Error(`Publishing Failed: ${error.message}`);
+        } finally {
+            try {
+                if (channel) await channel.close();
+                if (connection) await connection.close();
+            } catch (closeError) {
+                console.error('Error closing connection:', closeError.message);
+            }
         }
     };
+}
+
+// Exchange definitions
+const EXCHANGES = {
+    ORDER: 'orderexchange',
+    PAYMENT: 'paymentexchange'
 };
 
 // Publishers configuration with error handling
 const publishers = {
-    orderSuccess: createPublisher("orderexchange", "order.success"),
-    paymentConfirmed: createPublisher("paymentexchange", "payment.confirmed"),
-    paymentFailed: createPublisher("paymentexchange", "payment.failed"),
-    paymentProcessing: createPublisher("paymentexchange", "payment.processing"),
-    paymentRefund: createPublisher("paymentexchange", "payment.refund"),
-    paymentRefundProcessed: createPublisher("paymentexchange", "payment.refund.processed")
+    orderSuccess: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.ORDER,
+        exchangeType: "topic",
+        routingKey: "order.success"
+    }),
+    paymentConfirmed: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.PAYMENT,
+        exchangeType: "topic",
+        routingKey: "payment.confirmed"
+    }),
+    paymentFailed: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.PAYMENT,
+        exchangeType: "topic",
+        routingKey: "payment.failed"
+    }),
+    paymentProcessing: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.PAYMENT,
+        exchangeType: "topic",
+        routingKey: "payment.processing"
+    }),
+    paymentRefund: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.PAYMENT,
+        exchangeType: "topic",
+        routingKey: "payment.refund"
+    }),
+    paymentRefundProcessed: composePublisher({
+        connectionUri: RABBITMQ_URL,
+        exchange: EXCHANGES.PAYMENT,
+        exchangeType: "topic",
+        routingKey: "payment.refund.processed"
+    })
 };
 
 // Queue names for payment service
@@ -56,8 +157,9 @@ async function connectQueue() {
         if (channel) await channel.close();
         if (connection) await connection.close();
 
-        connection = await amqp.connect(RABBITMQ_URL);
-        console.log('RabbitMQ connection established successfully');
+        const result = await connect(RABBITMQ_URL);
+        connection = result.connection;
+        channel = result.channel;
 
         connection.on('error', (err) => {
             console.error('RabbitMQ connection error:', err);
@@ -69,16 +171,34 @@ async function connectQueue() {
             attemptReconnect();
         });
 
-        channel = await connection.createChannel();
-        console.log('RabbitMQ channel created');
-
-        // Assert all queues
-        for (const queue of Object.values(QUEUES)) {
-            await channel.assertQueue(queue, {
+        // Assert exchanges
+        for (const exchange of Object.values(EXCHANGES)) {
+            await channel.assertExchange(exchange, 'topic', {
                 durable: true
             });
-            console.log(`Queue ${queue} asserted successfully`);
+            console.log(`Exchange ${exchange} asserted successfully`);
         }
+
+        // Assert and bind queues to exchanges with appropriate routing keys
+        await channel.assertQueue(QUEUES.PAYMENT_REQUEST, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_REQUEST, EXCHANGES.PAYMENT, 'payment.request');
+
+        await channel.assertQueue(QUEUES.PAYMENT_PROCESSING, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_PROCESSING, EXCHANGES.PAYMENT, 'payment.processing');
+
+        await channel.assertQueue(QUEUES.PAYMENT_CONFIRMED, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_CONFIRMED, EXCHANGES.PAYMENT, 'payment.confirmed');
+
+        await channel.assertQueue(QUEUES.PAYMENT_FAILED, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_FAILED, EXCHANGES.PAYMENT, 'payment.failed');
+
+        await channel.assertQueue(QUEUES.PAYMENT_REFUND, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_REFUND, EXCHANGES.PAYMENT, 'payment.refund');
+
+        await channel.assertQueue(QUEUES.PAYMENT_REFUND_PROCESSED, { durable: true });
+        await channel.bindQueue(QUEUES.PAYMENT_REFUND_PROCESSED, EXCHANGES.PAYMENT, 'payment.refund.processed');
+
+        console.log('All queues and bindings set up successfully');
 
         // Reset reconnect attempts on successful connection
         reconnectAttempts = 0;
