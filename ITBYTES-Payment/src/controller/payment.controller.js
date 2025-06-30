@@ -1,25 +1,62 @@
 const Payment = require('../model/payment.model');
-const { getConnectionStatus, QUEUES } = require('../configs/rabbitmq.config');
+const { getConnectionStatus, QUEUES, publishers } = require('../configs/rabbitmq.config');
 
 // Create a new payment
 exports.createPayment = async (req, res) => {
     try {
+        // Validate required fields
+        const { userId, amount, orderId } = req.body;
+
+        if (!userId || !amount || !orderId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields: userId, amount, and orderId are required'
+            });
+        }
+
+        // Validate amount is a number and greater than 0
+        if (isNaN(amount) || Number(amount) <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Amount must be a number greater than 0'
+            });
+        }
+
+        // Create and save the payment
         const payment = new Payment({
-            userId: req.body.userId,
-            amount: req.body.amount,
-            orderId: req.body.orderId
+            userId,
+            amount: Number(amount),
+            orderId
         });
 
         const newPayment = await payment.save();
+
+        // Send response first
         res.status(201).json({
             success: true,
             data: newPayment
         });
+
+        // Then publish to RabbitMQ
+        const messagePayload = {
+            transactionId: newPayment._id.toString(),
+            orderId: newPayment.orderId,
+            userId: newPayment.userId,
+            amount: newPayment.amount,
+            timestamp: new Date().toISOString()
+        };
+
+        // Using the wrapped publisher with built-in error handling
+        await publishers.paymentProcessing(messagePayload);
+
     } catch (error) {
-        res.status(400).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Payment creation error:', error);
+        if (!res.headersSent) {
+            res.status(400).json({
+                success: false,
+                error: error.message
+            });
+        }
     }
 };
 

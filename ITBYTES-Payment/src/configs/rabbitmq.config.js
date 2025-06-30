@@ -1,6 +1,31 @@
 const amqp = require('amqplib');
+const {composePublisher} = require('rabbitmq-publisher')
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqps://ohcjywzb:ObmX3HW1v4G15PE35c_LUdHKgx14ZEwJ@cougar.rmq.cloudamqp.com/ohcjywzb';
+
+// Initialize publishers with error handling wrapper
+const createPublisher = (exchangeName, routingKey) => {
+    return async (message) => {
+        try {
+            const publisher = composePublisher({connectionUri: RABBITMQ_URL, exchange: exchangeName,exchangeType: "topic",routingKey: routingKey, queue: null});
+            await publisher(JSON.stringify(message));
+            console.log(`Message published to ${exchangeName} with routing key ${routingKey}`);
+        } catch (error) {
+            console.error(`Failed to publish message to ${exchangeName}:`, error);
+            // Don't throw error, just log it
+        }
+    };
+};
+
+// Publishers configuration with error handling
+const publishers = {
+    orderSuccess: createPublisher("orderexchange", "order.success"),
+    paymentConfirmed: createPublisher("paymentexchange", "payment.confirmed"),
+    paymentFailed: createPublisher("paymentexchange", "payment.failed"),
+    paymentProcessing: createPublisher("paymentexchange", "payment.processing"),
+    paymentRefund: createPublisher("paymentexchange", "payment.refund"),
+    paymentRefundProcessed: createPublisher("paymentexchange", "payment.refund.processed")
+};
 
 // Queue names for payment service
 const QUEUES = {
@@ -129,14 +154,126 @@ async function consumeMessage(queue, callback) {
     }
 }
 
+// Event handler functions
+async function handlePaymentRequest(message) {
+    try {
+        console.log('Processing payment request:', message);
+        
+        // Publish payment processing status
+        await publishers.paymentProcessing({
+            orderId: message.orderId,
+            amount: message.amount,
+            status: 'processing',
+            timestamp: new Date().toISOString()
+        });
+
+        // Simulate payment processing (replace with actual payment gateway integration)
+        const paymentSuccess = Math.random() > 0.1; // 90% success rate for simulation
+
+        if (paymentSuccess) {
+            // Publish payment confirmation
+            await publishers.paymentConfirmed({
+                orderId: message.orderId,
+                amount: message.amount,
+                status: 'confirmed',
+                transactionId: `txn_${Date.now()}`,
+                timestamp: new Date().toISOString()
+            });
+
+            // Notify order service
+            await publishers.orderSuccess({
+                orderId: message.orderId,
+                status: 'paid',
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            // Publish payment failure
+            await publishers.paymentFailed({
+                orderId: message.orderId,
+                amount: message.amount,
+                status: 'failed',
+                reason: 'Payment processing failed',
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error('Error handling payment request:', error);
+        await publishers.paymentFailed({
+            orderId: message.orderId,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+async function handleRefundRequest(message) {
+    try {
+        console.log('Processing refund request:', message);
+
+        // Publish refund processing status
+        await publishers.paymentProcessing({
+            orderId: message.orderId,
+            amount: message.amount,
+            status: 'refund_processing',
+            timestamp: new Date().toISOString()
+        });
+
+        // Simulate refund processing (replace with actual refund logic)
+        const refundSuccess = Math.random() > 0.1; // 90% success rate for simulation
+
+        if (refundSuccess) {
+            await publishers.paymentRefundProcessed({
+                orderId: message.orderId,
+                amount: message.amount,
+                status: 'refunded',
+                refundId: `ref_${Date.now()}`,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            await publishers.paymentFailed({
+                orderId: message.orderId,
+                amount: message.amount,
+                status: 'refund_failed',
+                reason: 'Refund processing failed',
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error('Error handling refund request:', error);
+        await publishers.paymentFailed({
+            orderId: message.orderId,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+// Initialize event listeners
+async function initializeEventListeners() {
+    try {
+        // Set up payment request listener
+        await consumeMessage(QUEUES.PAYMENT_REQUEST, handlePaymentRequest);
+        
+        // Set up refund request listener
+        await consumeMessage(QUEUES.PAYMENT_REFUND, handleRefundRequest);
+        
+        console.log('Payment service event listeners initialized successfully');
+    } catch (error) {
+        console.error('Failed to initialize event listeners:', error);
+        throw error;
+    }
+}
+
+// Initialize connection and event listeners when module is loaded
+connectQueue()
+    .then(() => initializeEventListeners())
+    .catch(err => {
+        console.error('Failed to initialize payment service:', err);
+    });
+
 process.on('exit', () => {
     if (channel) channel.close();
     if (connection) connection.close();
-});
-
-// Initialize connection when module is loaded
-connectQueue().catch(err => {
-    console.error('Initial RabbitMQ connection failed:', err);
 });
 
 // Keep the connection alive
@@ -154,6 +291,7 @@ module.exports = {
     publishMessage,
     consumeMessage,
     QUEUES,
+    publishers,
     getConnectionStatus: () => ({
         isConnected: !!(connection && !connection.closed),
         isConnecting,
