@@ -1,5 +1,18 @@
 const Payment = require('../model/payment.model');
-const { getConnectionStatus, QUEUES, publishers } = require('../configs/rabbitmq.config');
+const {server, publisher} = require('../configs/rabbitmq.config');
+
+//test RabbitMQ connection
+exports.testRabbitMQSend = async (req, res) => {
+    try {
+        // Check RabbitMQ connection status
+        publisher.paymentSuccess(server.channel, Buffer.from('Test message'));
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to test RabbitMQ connection'
+        });
+    }
+}; 
 
 // Create a new payment
 exports.createPayment = async (req, res) => {
