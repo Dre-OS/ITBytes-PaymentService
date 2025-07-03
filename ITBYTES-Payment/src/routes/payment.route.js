@@ -154,6 +154,6 @@ router.put('/:id', paymentController.updatePayment);
  *                   type: string
  *                   example: Failed to test RabbitMQ connection
  */
-router.get('/test/rabbitmq', paymentController.testRabbitMQConnection);
+router.get('/test/rabbitmq', paymentController.testRabbitMQSend);
 
 module.exports = router;

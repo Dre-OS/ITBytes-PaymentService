@@ -29,7 +29,7 @@ messagingPayment.listen({
 });
 
 // Then use separate middleware for different message types
-messagingPayment.use('payment.done', MessagingController.paymentSuccess);
+messagingPayment.use('payment.success', MessagingController.paymentSuccess);
 
 // Swagger Configuration
 const swaggerOptions = {

@@ -60,6 +60,10 @@ const MessagingController = {
 
         const payment = await Payment.create(paymentData);
 
+        // Test shit
+        // console.log('Payment created:' + JSON.stringify(req.body));
+
+
         // Publish payment success event
         await publisher.paymentSuccess({
           paymentId: payment._id.toString(), // MongoDB ObjectId
@@ -71,22 +75,22 @@ const MessagingController = {
         });
 
         // Notify order service
-        await publisher.orderPaid({
-          orderId: payment.orderId,
-          paymentId: payment._id.toString(), // MongoDB ObjectId
-          amount: payment.amount,
-          status: 'paid',
-          timestamp: new Date().toISOString()
-        });
+        // await publisher.orderPaid({
+        //   orderId: payment.orderId,
+        //   paymentId: payment._id.toString(), // MongoDB ObjectId
+        //   amount: payment.amount,
+        //   status: 'paid',
+        //   timestamp: new Date().toISOString()
+        // });
+        await publisher.orderPaid(server.channel, req.body);
 
-        res.status(201).json({
-          success: true,
-          data: payment
-        });
+        res.acknowledge = true;
+        res.status(201).end();
 
       } catch (err) {
         console.error('Payment creation error:', err);
-        res.status(400).json({ error: err.message });
+        res.acknowledgee = false;
+        res.status(400).end();
       }
     },
 
