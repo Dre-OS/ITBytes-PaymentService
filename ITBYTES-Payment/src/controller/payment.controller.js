@@ -6,7 +6,7 @@ exports.testRabbitMQSend = async (req, res) => {
     try {
         // Check RabbitMQ connection status
         publisher.paymentSuccess(server.channel, Buffer.from('Test message'));
-    } catch (error) {
+    } catch (error) {   
         return res.status(500).json({
             success: false,
             message: 'Failed to test RabbitMQ connection'
@@ -19,7 +19,7 @@ exports.createPayment = async (req, res) => {
     try {
         // Validate required fields
         const { userId, amount, orderId } = req.body;
-
+        
         if (!userId || !amount || !orderId) {
             return res.status(400).json({
                 success: false,
@@ -60,7 +60,7 @@ exports.createPayment = async (req, res) => {
         };
 
         // Using the wrapped publisher with built-in error handling
-        await publishers.paymentProcessing(messagePayload);
+        await publisher.paymentSuccess(server.channel, Buffer.from(JSON.stringify(req.body)));
 
     } catch (error) {
         console.error('Payment creation error:', error);
