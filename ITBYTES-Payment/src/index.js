@@ -22,14 +22,14 @@ const messagingConfig = {
 
 messagingPayment.listen({
   ...messagingConfig,
-  exchange: 'payment',
-  queue: 'payment-events',
-  routingKey: 'payment.*', // This will catch all order events
+  exchange: 'order',
+  queue: 'order-events',
+  routingKey: 'order.*', // This will catch all order events
   consumerOptions: { noAck: false }, // Enable explicit acknowledgments
-});
+});                         
 
 // Then use separate middleware for different message types
-messagingPayment.use('payment.success', MessagingController.paymentSuccess);
+messagingPayment.use('order.created', MessagingController.orderCreated);
 
 // Swagger Configuration
 const swaggerOptions = {
