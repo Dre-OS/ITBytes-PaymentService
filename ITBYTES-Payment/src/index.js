@@ -47,6 +47,10 @@ const swaggerOptions = {
             {
                 url: 'http://192.168.9.2:3001',
                 description: 'Payment'
+            },
+            {
+                url: 'http://localhost:3001',
+                description: 'Local Payment'
             }
         ],
         components: {
