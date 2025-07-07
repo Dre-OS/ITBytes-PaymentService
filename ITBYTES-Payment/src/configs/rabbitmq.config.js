@@ -45,13 +45,21 @@ const publisher = {
   // paymentProcessing: createTopicPublisher('payment.processing', 'payment', 'payment-events', null),
   paymentSuccess: createTopicPublisher('payment.success', 'payment', 'payment-events', null),
   paymentFailed: createTopicPublisher('payment.failed', 'payment', 'payment-events', null),
-  
+
   // orderPaid: createTopicPublisher('order.paid', 'order', 'order-events', null),
 }
 
 const MessagingController = {
-    paymentSuccess: async (req, res) => {
-      console.log('Payment success request received:');
+    orderCreated: async (req, res) => {
+      try {
+        console.log('Payment success request received:');
+        publisher.paymentSuccess(server.channel, Buffer.from(JSON.stringify(req.body)));
+      } catch (error) {
+        console.error('Error processing order created:', error);
+        res.status(500).json({ error: 'Internal server error' });
+        
+      }
+
       // try {
       //   // Create payment first
       //   const paymentData = {
