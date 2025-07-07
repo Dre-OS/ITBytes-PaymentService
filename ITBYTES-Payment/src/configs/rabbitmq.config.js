@@ -42,37 +42,39 @@ function createTopicPublisher(routingKey, exchange, queueName, options) {
 }
 
 const publisher = {
-  paymentProcessing: createTopicPublisher('payment.processing', 'payment', 'payment-events', null),
+  // paymentProcessing: createTopicPublisher('payment.processing', 'payment', 'payment-events', null),
   paymentSuccess: createTopicPublisher('payment.success', 'payment', 'payment-events', null),
   paymentFailed: createTopicPublisher('payment.failed', 'payment', 'payment-events', null),
-  orderPaid: createTopicPublisher('order.paid', 'order', 'order-events', null),
+  
+  // orderPaid: createTopicPublisher('order.paid', 'order', 'order-events', null),
 }
 
 const MessagingController = {
     paymentSuccess: async (req, res) => {
-      try {
-        // Create payment first
-        const paymentData = {
-          userId: req.body.userId,
-          amount: req.body.amount,
-          orderId: req.body.orderId
-        };
+      console.log('Payment success request received:');
+      // try {
+      //   // Create payment first
+      //   const paymentData = {
+      //     userId: req.body.userId,
+      //     amount: req.body.amount,
+      //     orderId: req.body.orderId
+      //   };
 
-        const payment = await Payment.create(paymentData);
+      //   const payment = await Payment.create(paymentData);
 
-        // Test shit
-        // console.log('Payment created:' + JSON.stringify(req.body));
+      //   // Test shit
+      //   // console.log('Payment created:' + JSON.stringify(req.body));
 
 
-        // Publish payment success event
-        await publisher.paymentSuccess({
-          paymentId: payment._id.toString(), // MongoDB ObjectId
-          orderId: payment.orderId,
-          amount: payment.amount,
-          userId: payment.userId,
-          status: 'success',
-          timestamp: new Date().toISOString()
-        });
+      //   // Publish payment success event
+      //   await publisher.paymentSuccess({
+      //     paymentId: payment._id.toString(), // MongoDB ObjectId
+      //     orderId: payment.orderId,
+      //     amount: payment.amount,
+      //     userId: payment.userId,
+      //     status: 'success',
+      //     timestamp: new Date().toISOString()
+        // });
 
         // Notify order service
         // await publisher.orderPaid({
@@ -82,50 +84,50 @@ const MessagingController = {
         //   status: 'paid',
         //   timestamp: new Date().toISOString()
         // });
-        await publisher.orderPaid(server.channel, req.body);
+      //   await publisher.orderPaid(server.channel, req.body);
 
-        res.acknowledge = true;
-        res.status(201).end();
+      //   res.acknowledge = true;
+      //   res.status(201).end();
 
-      } catch (err) {
-        console.error('Payment creation error:', err);
-        res.acknowledgee = false;
-        res.status(400).end();
-      }
+      // } catch (err) {
+      //   console.error('Payment creation error:', err);
+      //   res.acknowledgee = false;
+      //   res.status(400).end();
+      // }
     },
 
-    paymentFailed: async (req, res) => {
-      try {
-        const payment = await Payment.findById(req.params.id);
+    // paymentFailed: async (req, res) => {
+    //   try {
+    //     const payment = await Payment.findById(req.params.id);
         
-        if (!payment) {
-          return res.status(404).json({ error: 'Payment not found' });
-        }
+    //     if (!payment) {
+    //       return res.status(404).json({ error: 'Payment not found' });
+    //     }
 
-        // Publish payment failed event
-        // await publisher.paymentFailed({
-        //   paymentId: payment._id.toString(), // MongoDB ObjectId
-        //   orderId: payment.orderId,
-        //   amount: payment.amount,
-        //   userId: payment.userId,
-        //   status: 'failed',
-        //   reason: req.body.reason || 'Payment processing failed',
-        //   timestamp: new Date().toISOString()
-        // });
+    //     // Publish payment failed event
+    //     // await publisher.paymentFailed({
+    //     //   paymentId: payment._id.toString(), // MongoDB ObjectId
+    //     //   orderId: payment.orderId,
+    //     //   amount: payment.amount,
+    //     //   userId: payment.userId,
+    //     //   status: 'failed',
+    //     //   reason: req.body.reason || 'Payment processing failed',
+    //     //   timestamp: new Date().toISOString()
+    //     // });
 
-        await publisher.paymentFailed(req.body);
+    //     await publisher.paymentFailed(req.body);
 
-        res.status(200).json({
-          success: true,
-          message: 'Payment failure recorded',
-          data: payment
-        });
+    //     res.status(200).json({
+    //       success: true,
+    //       message: 'Payment failure recorded',
+    //       data: payment
+    //     });
 
-      } catch (err) {
-        console.error('Payment failed error:', err);
-        res.status(400).json({ error: err.message });
-      }
-    }
+    //   } catch (err) {
+    //     console.error('Payment failed error:', err);
+    //     res.status(400).json({ error: err.message });
+    //   }
+    // }
 };
 
 module.exports = {
